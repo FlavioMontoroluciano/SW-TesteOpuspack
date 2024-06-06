@@ -14,6 +14,10 @@ class SerialApp:
         style = ttk.Style()
         style.theme_use('clam')
 
+        # Definir tamanho fixo da janela
+        root.geometry("860x770")  # Ajuste para o tamanho desejado
+        root.resizable(False, False)  # Desativa redimensionamento horizontal e vertical
+
         # Configurações de cores e fontes
         bg_color = "#f5f5f5"
         fg_color = "#000000"
@@ -82,29 +86,57 @@ class SerialApp:
                 device_var.append(var)
 
             self.device_vars.append(device_var)
-
             send_button = ttk.Button(device_frame, text="Enviar", command=lambda i=i: self.send_data(i))
             send_button.grid(row=0, column=11, padx=5)
 
         self.control_frame = ttk.LabelFrame(self.main_frame, text="Controles", padding="10 10 10 10")
         self.control_frame.grid(row=4, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
 
-        self.up_button = ttk.Button(self.control_frame, text="▲", command=self.press_up)
+        # Botões de Controle Alinhados Horizontalmente
+        self.up_button = ttk.Button(self.control_frame, text="▲")
         self.up_button.grid(row=0, column=0, padx=5, pady=5)
+        self.up_button.bind("<ButtonPress>", self.press_up)
+        self.up_button.bind("<ButtonRelease>", self.release_up)
 
         self.stop_button = ttk.Button(self.control_frame, text="Stop", command=self.press_stop)
-        self.stop_button.grid(row=1, column=0, padx=5, pady=5)
+        self.stop_button.grid(row=0, column=1, padx=5, pady=5)
 
-        self.down_button = ttk.Button(self.control_frame, text="▼", command=self.press_down)
-        self.down_button.grid(row=2, column=0, padx=5, pady=5)
+        self.down_button = ttk.Button(self.control_frame, text="▼")
+        self.down_button.grid(row=0, column=2, padx=5, pady=5)
+        self.down_button.bind("<ButtonPress>", self.press_down)
+        self.down_button.bind("<ButtonRelease>", self.release_down)
 
         self.solenoid1_state = False
         self.solenoid1_button = ttk.Button(self.control_frame, text="Solenoide 1", command=self.toggle_solenoid1)
-        self.solenoid1_button.grid(row=3, column=0, padx=5, pady=5)
+        self.solenoid1_button.grid(row=0, column=3, padx=5, pady=5)
 
         self.solenoid2_state = False
         self.solenoid2_button = ttk.Button(self.control_frame, text="Solenoide 2", command=self.toggle_solenoid2)
-        self.solenoid2_button.grid(row=3, column=1, padx=5, pady=5)
+        self.solenoid2_button.grid(row=0, column=4, padx=5, pady=5)
+
+        self.floor_vars = []
+        floor_names = ["HOME", "Andar 1", "Andar 2", "Andar 3", "Andar 4", "Andar 5", "Andar 6", "Andar 7", "Andar 8"]
+
+        # Botões de Navegação
+        self.navigation_frame = ttk.LabelFrame(self.main_frame, text="Navegação", padding="10 10 10 10")
+        self.navigation_frame.grid(row=3, column=5, rowspan=3, pady=10, padx=10, sticky=(tk.N, tk.S))
+
+        for i, floor_name in enumerate(floor_names):
+            button = ttk.Button(self.navigation_frame, text=f"{floor_name}", command=lambda i=i: self.navigate_to_floor(i))
+            button.grid(row=i, column=0, padx=5, pady=2)
+
+        # Calibração Frame
+        self.calibration_frame = ttk.LabelFrame(self.main_frame, text="Calibração", padding="10 10 10 10")
+        self.calibration_frame.grid(row=5, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E))
+
+        for i, floor_name in enumerate(floor_names):
+            var = tk.IntVar(value=1 if i == 0 else 0)
+            chk = ttk.Checkbutton(self.calibration_frame, text=f"{floor_name}", variable=var, command=lambda i=i: self.select_floor(i))
+            chk.grid(row=0, column=i, padx=5)
+            self.floor_vars.append(var)
+
+        self.calibrate_button = ttk.Button(self.calibration_frame, text="Calibrar", command=self.calibrate)
+        self.calibrate_button.grid(row=1, column=0, columnspan=9, pady=10)
 
     def update_ports(self):
         ports = [port.device for port in list_ports.comports()]
@@ -153,20 +185,28 @@ class SerialApp:
     def send_control_command(self, command):
         threading.Thread(target=self.send_serial_data, args=(command,)).start()
 
-    def press_up(self):
+    def press_up(self, event):
         self.send_control_command("M1")
         self.up_button.state(['pressed'])
         self.down_button.state(['!pressed'])
+
+    def release_up(self, event):
+        self.send_control_command("M0")
+        self.up_button.state(['!pressed'])
 
     def press_stop(self):
         self.send_control_command("M0")
         self.up_button.state(['!pressed'])
         self.down_button.state(['!pressed'])
 
-    def press_down(self):
+    def press_down(self, event):
         self.send_control_command("M2")
         self.down_button.state(['pressed'])
         self.up_button.state(['!pressed'])
+
+    def release_down(self, event):
+        self.send_control_command("M0")
+        self.down_button.state(['!pressed'])
 
     def toggle_solenoid1(self):
         self.solenoid1_state = not self.solenoid1_state
@@ -179,6 +219,26 @@ class SerialApp:
         command = "S21" if self.solenoid2_state else "S20"
         self.send_control_command(command)
         self.solenoid2_button.state(['pressed'] if self.solenoid2_state else ['!pressed'])
+
+    def select_floor(self, floor_index):
+        for i, var in enumerate(self.floor_vars):
+            var.set(1 if i == floor_index else 0)
+
+    def calibrate(self):
+        selected_floor = None
+        for i, var in enumerate(self.floor_vars):
+            if var.get() == 1:
+                selected_floor = i
+                break
+        if selected_floor is not None:
+            command = f"CAL{selected_floor}"
+            self.send_control_command(command)
+        else:
+            messagebox.showerror("Erro", "Nenhum andar selecionado para calibração.")
+
+    def navigate_to_floor(self, floor_index):
+        command = f"AN{floor_index}"
+        self.send_control_command(command)
 
     def on_closing(self):
         self.close_serial_connection()
